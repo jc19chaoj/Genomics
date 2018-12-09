@@ -6,17 +6,14 @@ import tensorflow as tf
 import pandas as pd
 
 
-LOGDIR = '/tmp/temp_log/'
+LOGDIR = '~/tmp/Genomics_train_log/'
 
 def str_to_int(gene_str):
     gene_list = list(gene_str)
-    gene_dict = {"A": 0, "C":0, "G":0, "T":0}
-    index = 0
+    gene_dict = {"A": [0,0], "C":[0,1], "G":[1,0], "T":[1,1]}
+    gene_array = []
     for s in gene_list[::-1]:
-        gene_dict[s] += 2**index
-        index += 1
-
-    gene_array = list(gene_dict.values())
+        gene_array.extend(gene_dict[s])
     return np.asarray(gene_array)
 
 def load_data(filename):
@@ -74,16 +71,15 @@ def fc_layer(name, inputs, output_units, activation=tf.nn.relu, dropout_rate=0.5
 
 def nn_model(learning_rate, keep=1):
     tf.reset_default_graph()
-    sess = tf.Session()
 
     # Setup placeholders, and reshape the data
-    X = tf.placeholder(tf.float32, shape=[None, 4], name="x")
+    X = tf.placeholder(tf.float32, shape=[None, 28], name="x")
     print("Inputs:",X)
     #tf.summary.image('input', X, 3)
     y = tf.placeholder(tf.float32, shape=[None, 2], name="labels")
 
     # fc1
-    fc1 = fc_layer('fc1', X, 48, dropout_rate=keep)
+    fc1 = fc_layer('fc1', X, 48, dropout_rate=keep, activation=tf.nn.tanh)
     tf.summary.histogram('fc1', fc1)
     # fc2
     # fc2 = fc_layer('fc2', fc1, 48)
@@ -100,7 +96,8 @@ def nn_model(learning_rate, keep=1):
         tf.summary.scalar('xent', xent)
 
     with tf.name_scope('train'):
-        optimizer = tf.train.AdamOptimizer(learning_rate,0.8).minimize(xent)
+        #optimizer = tf.train.AdamOptimizer(learning_rate,0.8).minimize(xent)
+        optimizer = tf.train.AdamOptimizer(learning_rate).minimize(xent)
 
     with tf.name_scope('accuracy'):
         correct_pred = tf.equal(tf.argmax(output_layer,1), tf.argmax(y,1))
@@ -112,11 +109,14 @@ def nn_model(learning_rate, keep=1):
 
     saver = tf.train.Saver()
 
+    sess = tf.Session()
     sess.run(tf.global_variables_initializer())
     writer = tf.summary.FileWriter(LOGDIR+"lr_%.0E"%learning_rate)
     writer.add_graph(sess.graph)
 
     raw_data = load_data("train.csv")
+    print("data size", len(raw_data))
+     
     inputs, labels = shuffle_data(raw_data)
     batch_size = 100
     batch_index = 0
@@ -127,16 +127,12 @@ def nn_model(learning_rate, keep=1):
         inputs_batch, labels_batch = next_batch(inputs, labels, batch_size, batch_index)
         batch_index += batch_size
         # check training accuracy every 200 iterations
-        if i % 40 == 0:
-            [loss, s] = sess.run(
-                [xent, summary_merge],
-                feed_dict={X: inputs_batch, y: labels_batch})
-            writer.add_summary(s, i)
-        if i % 200 == 0:
+        if i % 20 == 0:
             inputs, labels = shuffle_data(raw_data)
-            train_accuracy = sess.run(
-                accuracy,
-                feed_dict={X: inputs, y: labels})
+        if i % 200 == 0:
+            train_accuracy, loss, s = sess.run(
+                    [accuracy, xent, summary_merge], feed_dict={X: inputs, y: labels})
+            writer.add_summary(s, i)
             print("Step:", i, "accuracy =", train_accuracy, "loss =", loss)
 
         sess.run(optimizer, feed_dict={X: inputs_batch, y: labels_batch})
@@ -158,7 +154,7 @@ def nn_model(learning_rate, keep=1):
     df.to_csv("test_result.csv")
 
 def main():
-    for learning_rate in [1E-6]:
+    for learning_rate in [1E-3]:
 
         print('Starting run for %s' % learning_rate)
 
